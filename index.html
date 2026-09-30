@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Santa Tracker</title>
+
+<script src="https://unpkg.com/globe.gl"></script>
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+        font-family: Arial, sans-serif;
+        color: white;
+    }
+
+    #globeViz {
+        width: 100vw;
+        height: 100vh;
+    }
+
+    #panel {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        width: 300px;
+        padding: 18px;
+        background: rgba(10, 20, 30, 0.88);
+        border: 1px solid rgba(255,255,255,.25);
+        border-radius: 15px;
+        z-index: 10;
+        backdrop-filter: blur(8px);
+    }
+
+    #panel h1 {
+        margin: 0 0 8px;
+        font-size: 25px;
+    }
+
+    #status {
+        margin: 10px 0;
+        font-size: 14px;
+    }
+
+    button, select {
+        width: 100%;
+        padding: 11px;
+        margin-top: 8px;
+        border: 0;
+        border-radius: 8px;
+        font-size: 15px;
+        cursor: pointer;
+    }
+
+    button {
+        background: #b30000;
+        color: white;
+    }
+
+    button:hover {
+        background: #d00000;
+    }
+
+    #settings {
+        display: none;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255,255,255,.2);
+    }
+
+    #musicButton {
+        background: #155724;
+    }
+
+    #musicButton:hover {
+        background: #1c7a32;
+    }
+
+    #trackingBox {
+        position: absolute;
+        right: 20px;
+        top: 20px;
+        width: 260px;
+        padding: 15px;
+        background: rgba(10,20,30,.85);
+        border-radius: 14px;
+        z-index: 10;
+    }
+
+    .signal {
+        margin: 7px 0;
+        font-size: 14px;
+    }
+
+    .dot {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #39ff72;
+        margin-right: 7px;
+    }
+
+    #loading {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 20px;
+        z-index: 20;
+        pointer-events: none;
+    }
+</style>
+</head>
+
+<body>
+
+<div id="globeViz"></div>
+
+<div id="loading">Loading the North Pole tracker... 🎅</div>
+
+<div id="panel">
+    <h1>🎅 Santa Tracker</h1>
+
+    <div id="status">
+        Santa is waiting at the North Pole.
+    </div>
+
+    <button onclick="startTracking()">START TRACKING</button>
+    <button onclick="toggleSettings()">PARENT SETTINGS</button>
+    <button id="musicButton" onclick="toggleMusic()">🎄 Christmas Jazz: OFF</button>
+
+    <div id="settings">
+        <b>Santa Arrival Location</b>
+
+        <select id="stateSelect">
+            <option value="Georgia">Georgia</option>
+            <option value="Alabama">Alabama</option>
+            <option value="Florida">Florida</option>
+            <option value="South Carolina">South Carolina</option>
+            <option value="North Carolina">North Carolina</option>
+            <option value="Tennessee">Tennessee</option>
+            <option value="Texas">Texas</option>
+            <option value="California">California</option>
+            <option value="New York">New York</option>
+            <option value="Virginia">Virginia</option>
+            <option value="Pennsylvania">Pennsylvania</option>
+            <option value="Ohio">Ohio</option>
+            <option value="Illinois">Illinois</option>
+            <option value="Michigan">Michigan</option>
+            <option value="Colorado">Colorado</option>
+            <option value="Arizona">Arizona</option>
+            <option value="Washington">Washington</option>
+            <option value="Oregon">Oregon</option>
+        </select>
+
+        <button onclick="saveSettings()">SAVE SETTINGS</button>
+    </div>
+</div>
+
+<div id="trackingBox">
+    <b>📡 Radio Tracking Signal</b>
+
+    <div class="signal">
+        <span class="dot"></span>
+        Satellite Network
+    </div>
+
+    <div class="signal">
+        <span class="dot"></span>
+        North Pole Radar
+    </div>
+
+    <div class="signal">
+        <span class="dot"></span>
+        Cell Tower Network
+    </div>
+
+    <div class="signal">
+        <span class="dot"></span>
+        Reindeer Transponder
+    </div>
+
+    <div id="locationText">
+        📍 Location: North Pole
+    </div>
+</div>
+
+<audio id="christmasMusic" loop>
+    <source src="pulsebox-jazz-christmas-432315.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+
+let globe;
+let santaObject = null;
+
+let tracking = false;
+let route = [];
+let routeIndex = 0;
+
+let selectedState = "Georgia";
+
+let santaLat = 90;
+let santaLng = 0;
+
+let musicPlaying = false;
+
+const stateLocations = {
+    "Georgia": [33.7490, -84.3880],
+    "Alabama": [32.8067, -86.7911],
+    "Florida": [27.9944, -81.7603],
+    "South Carolina": [33.8361, -80.8987],
+    "North Carolina": [35.7596, -79.0193],
+    "Tennessee": [35.5175, -86.5804],
+    "Texas": [31.9686, -99.9018],
+    "California": [36.7783, -119.4179],
+    "New York": [42.9538, -75.5268],
+    "Virginia": [37.4316, -78.6569],
+    "Pennsylvania": [41.2033, -77.1945],
+    "Ohio": [40.4173, -82.9071],
+    "Illinois": [40.6331, -89.3985],
+    "Michigan": [44.3148, -85.6024],
+    "Colorado": [39.5501, -105.7821],
+    "Arizona": [34.0489, -111.0937],
+    "Washington": [47.4009, -121.4905],
+    "Oregon": [43.8041, -120.5542]
+};
+
+const cities = [
+    { name:"New York", lat:40.7128, lng:-74.0060 },
+    { name:"Los Angeles", lat:34.0522, lng:-118.2437 },
+    { name:"Chicago", lat:41.8781, lng:-87.6298 },
+    { name:"Atlanta", lat:33.7490, lng:-84.3880 },
+    { name:"Miami", lat:25.7617, lng:-80.1918 },
+    { name:"Houston", lat:29.7604, lng:-95.3698 },
+    { name:"Dallas", lat:32.7767, lng:-96.7970 },
+    { name:"Seattle", lat:47.6062, lng:-122.3321 },
+    { name:"Denver", lat:39.7392, lng:-104.9903 },
+    { name:"Boston", lat:42.3601, lng:-71.0589 },
+
+    { name:"London", lat:51.5074, lng:-0.1278 },
+    { name:"Paris", lat:48.8566, lng:2.3522 },
+    { name:"Madrid", lat:40.4168, lng:-3.7038 },
+    { name:"Rome", lat:41.9028, lng:12.4964 },
+    { name:"Berlin", lat:52.5200, lng:13.4050 },
+
+    { name:"Tokyo", lat:35.6762, lng:139.6503 },
+    { name:"Seoul", lat:37.5665, lng:126.9780 },
+    { name:"Beijing", lat:39.9042, lng:116.4074 },
+    { name:"Sydney", lat:-33.8688, lng:151.2093 },
+
+    { name:"Mexico City", lat:19.4326, lng:-99.1332 },
+    { name:"São Paulo", lat:-23.5505, lng:-46.6333 },
+    { name:"Buenos Aires", lat:-34.6037, lng:-58.3816 },
+
+    { name:"Santo Domingo", lat:18.4861, lng:-69.9312 },
+    { name:"San Juan", lat:18.4655, lng:-66.1057 },
+    { name:"Havana", lat:23.1136, lng:-82.3666 },
+    { name:"Nassau", lat:25.0443, lng:-77.3504 },
+    { name:"Kingston", lat:17.9712, lng:-76.7936 }
+];
+
+function initGlobe() {
+
+    globe = Globe()
+        (document.getElementById("globeViz"))
+
+        .globeImageUrl(
+            "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
+        )
+
+        .bumpImageUrl(
+            "https://unpkg.com/three-globe/example/img/earth-topology.png"
+        )
+
+        .backgroundImageUrl(
+            "https://unpkg.com/three-globe/example/img/night-sky.png"
+        )
+
+        .labelsData(cities)
+
+        .labelLat(d => d.lat)
+        .labelLng(d => d.lng)
+        .labelText(d => d.name)
+        .labelSize(0.7)
+        .labelDotRadius(0.25)
+        .labelAltitude(0.01);
+
+    globe.pointOfView({
+        lat: 20,
+        lng: -30,
+        altitude: 2.2
+    });
+
+    loadSanta();
+
+    setTimeout(() => {
+        document.getElementById("loading").style.display = "none";
+    }, 2500);
+}
+
+function loadSanta() {
+
+    const loader = new THREE.GLTFLoader();
+
+    loader.load(
+        "snat.gltf",
+
+        function(gltf) {
+
+            santaObject = gltf.scene;
+
+            santaObject.scale.set(0.15, 0.15, 0.15);
+
+            santaObject.traverse(function(child) {
+
+                if(child.isMesh) {
+                    child.frustumCulled = false;
+                }
+
+            });
+
+            santaObject.visible = false;
+
+            globe.scene().add(santaObject);
+
+            console.log("🎅 Santa model loaded!");
+        },
+
+        undefined,
+
+        function(error) {
+
+            console.error("Santa model failed to load:", error);
+
+            document.getElementById("status").innerHTML =
+                "⚠️ Santa model could not be loaded.";
+        }
+    );
+}
+
+function toggleSettings() {
+
+    const settings = document.getElementById("settings");
+
+    if(settings.style.display === "block") {
+        settings.style.display = "none";
+    } else {
+        settings.style.display = "block";
+    }
+}
+
+function saveSettings() {
+
+    selectedState =
+        document.getElementById("stateSelect").value;
+
+    document.getElementById("status").innerHTML =
+        "🎄 Santa will finish his route in " + selectedState + ".";
+
+    document.getElementById("settings").style.display = "none";
+}
+
+function toggleMusic() {
+
+    const music =
+        document.getElementById("christmasMusic");
+
+    const button =
+        document.getElementById("musicButton");
+
+    if(!musicPlaying) {
+
+        music.play();
+
+        musicPlaying = true;
+
+        button.innerHTML =
+            "🎄 Christmas Jazz: ON";
+
+    } else {
+
+        music.pause();
+
+        musicPlaying = false;
+
+        button.innerHTML =
+            "🎄 Christmas Jazz: OFF";
+    }
+}
+
+function startTracking() {
+
+    tracking = true;
+
+    routeIndex = 0;
+
+    createRoute();
+
+    document.getElementById("status").innerHTML =
+        "🎅 Santa is on the move!";
+
+    animateRoute();
+}
+
+function createRoute() {
+
+    const destination =
+        stateLocations[selectedState];
+
+    route = [];
+
+    // North Pole
+    route.push([90, 0]);
+
+    // Random worldwide stops
+    for(let i = 0; i < 7; i++) {
+
+        const lat =
+            Math.random() * 130 - 65;
+
+        const lng =
+            Math.random() * 360 - 180;
+
+        route.push([lat, lng]);
+    }
+
+    // Caribbean stop
+    route.push([
+        18.4861,
+        -69.9312
+    ]);
+
+    // Final destination
+    route.push(destination);
+}
+
+function animateRoute() {
+
+    if(!tracking || routeIndex >= route.length - 1) {
+
+        tracking = false;
+
+        document.getElementById("status").innerHTML =
+            "🎁 Santa has arrived in " +
+            selectedState + "!";
+
+        return;
+    }
+
+    const start =
+        route[routeIndex];
+
+    const end =
+        route[routeIndex + 1];
+
+    let progress = 0;
+
+    function move() {
+
+        progress += 0.008;
+
+        if(progress >= 1) {
+
+            routeIndex++;
+
+            animateRoute();
+
+            return;
+        }
+
+        santaLat =
+            start[0] +
+            (end[0] - start[0]) *
+            progress;
+
+        santaLng =
+            start[1] +
+            (end[1] - start[1]) *
+            progress;
+
+        updateSanta();
+
+        requestAnimationFrame(move);
+    }
+
+    move();
+}
+
+function updateSanta() {
+
+    if(!santaObject) return;
+
+    const coords =
+        globe.getCoords(
+            santaLat,
+            santaLng,
+            0.15
+        );
+
+    santaObject.position.set(
+        coords.x,
+        coords.y,
+        coords.z
+    );
+
+    santaObject.visible = true;
+
+    document.getElementById("locationText").innerHTML =
+        "📍 Location: " +
+        santaLat.toFixed(1) +
+        "°, " +
+        santaLng.toFixed(1) +
+        "°";
+
+    globe.pointOfView(
+        {
+            lat: santaLat,
+            lng: santaLng,
+            altitude: 2.0
+        },
+        800
+    );
+}
+
+initGlobe();
+
+</script>
+
+</body>
+</html>
